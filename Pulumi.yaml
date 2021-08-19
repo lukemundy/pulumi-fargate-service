@@ -1,0 +1,5 @@
+name: pulumi-fargate-service
+runtime: nodejs
+description: A Pulumi module for creating an AWS Fargate Service
+main: src/
+config: config/
