@@ -98,6 +98,53 @@ interface ServiceAlbConfiguration {
     securityGroupId: pulumi.Input<string>;
 }
 
+type ScalableMetricType =
+    | 'ALBRequestCountPerTarget'
+    | 'ECSServiceAverageCPUUtilization'
+    | 'ECSServiceAverageMemoryUtilization';
+
+interface AutoScalingConfiguration {
+    /**
+     * The minimum number of tasks that should be running in this service. Auto-scaling will never reduce the amount of
+     * running tasks to less than this number.
+     */
+    minTasks: number;
+
+    /**
+     * The maximum number of tasks that should be running in this service. Auto-scaling will never increase the amount
+     * of running tasks to more than this number.
+     */
+    maxTasks: number;
+
+    /**
+     * How long (in seconds) the auto-scaling service should wait in between consecutive scale-in actions.
+     *
+     * Default: `60`
+     */
+    scaleInCooldown?: number;
+
+    /**
+     * How long (in seconds) the auto-scaling service should wait in between consecutive scale-out actions. This should
+     * ideally be set to an amount of time that allows for new tasks to boot up, become healthy and start having an
+     * impact on whatever metric the policy scales on (eg CPUUtilization).
+     *
+     * Default: `60`
+     */
+    scaleOutCooldown?: number;
+
+    /**
+     * What metric to use to make scaling decisions with.
+     */
+    scalableMetric: ScalableMetricType;
+
+    /**
+     * What value auto-scaling should attempt to keep the scalable metric at. For example if you have specified
+     * 'ECSServiceAverageCPUUtilization' as the scalable metric, the threshold is what CPU Utilization you want to stay
+     * under.
+     */
+    threshold: number;
+}
+
 export interface FargateServiceArgs {
     /**
      * Configuration needed to integrate the service with an Application Load Balancer. If not provided, the service
@@ -106,9 +153,15 @@ export interface FargateServiceArgs {
     albConfig?: ServiceAlbConfiguration;
 
     /**
+     * Configuration required to set up auto-scaling of the service. If not provided the service will not perform any
+     * autoscaling
+     */
+    autoScalingConfig?: AutoScalingConfiguration;
+
+    /**
      * Name of the ECS cluster to create the service in.
      */
-    clusterName?: pulumi.Input<string>;
+    clusterName: pulumi.Input<string>;
 
     /**
      * An array of container definitions your service. Refer to the AWS documentation for more details on the fields

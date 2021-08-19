@@ -1,6 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
 import * as random from '@pulumi/random';
+import { ResourceError } from '@pulumi/pulumi';
 import {
     FargateServiceArgs,
     FargateServiceDefaults,
@@ -24,12 +25,22 @@ export default class FargateService extends pulumi.ComponentResource {
     constructor(name: string, args: FargateServiceArgs, opts?: pulumi.ComponentResourceOptions) {
         super('FargateService', name, args, opts);
 
-        const { albConfig, clusterName, containers, cpu, memory, namespace, subnetIds, taskPolicy, vpcId } =
-            this.validateArgs(args, {
-                cpu: 256,
-                memory: 512,
-                namespace: `${name}-${pulumi.getStack()}`,
-            });
+        const {
+            albConfig,
+            autoScalingConfig,
+            clusterName,
+            containers,
+            cpu,
+            memory,
+            namespace,
+            subnetIds,
+            taskPolicy,
+            vpcId,
+        } = this.validateArgs(args, {
+            cpu: 256,
+            memory: 512,
+            namespace: `${name}-${pulumi.getStack()}`,
+        });
 
         const region = aws.config.requireRegion();
         const { accountId } = pulumi.output(aws.getCallerIdentity());
@@ -253,8 +264,9 @@ export default class FargateService extends pulumi.ComponentResource {
             { parent: this },
         );
 
-        const loadBalancers: aws.types.input.ecs.ServiceLoadBalancer[] = [];
+        const containerAlbConfigs: aws.types.input.ecs.ServiceLoadBalancer[] = [];
         const serviceOpts: pulumi.ResourceOptions = {};
+        let targetGroupArnSuffix: pulumi.Output<string> | string = '';
 
         if (albConfig) {
             const { healthCheckConfig, listenerArn, ruleActions, rulePriority, portMapping, securityGroupId } =
@@ -287,6 +299,8 @@ export default class FargateService extends pulumi.ComponentResource {
                 { parent: this },
             );
 
+            targetGroupArnSuffix = targetGroup.arnSuffix;
+
             const actions: aws.types.input.lb.ListenerRuleAction[] = [];
 
             if (ruleActions) ruleActions.forEach((action, index) => actions.push({ order: index + 1, ...action }));
@@ -308,7 +322,7 @@ export default class FargateService extends pulumi.ComponentResource {
                 { parent: this, deleteBeforeReplace: true },
             );
 
-            loadBalancers.push({ ...portMapping, targetGroupArn: targetGroup.arn });
+            containerAlbConfigs.push({ ...portMapping, targetGroupArn: targetGroup.arn });
 
             // The service needs to depend on the listener rule since AWS will not add a service to a target group until
             // the target group is associated with a listener which doesn't occur until the listener rule is created.
@@ -319,7 +333,7 @@ export default class FargateService extends pulumi.ComponentResource {
         const service = new aws.ecs.Service(
             `${namespace}-service`,
             {
-                loadBalancers,
+                loadBalancers: containerAlbConfigs,
                 cluster: clusterName,
                 launchType: 'FARGATE',
                 desiredCount: 1,
@@ -333,9 +347,74 @@ export default class FargateService extends pulumi.ComponentResource {
             },
             {
                 parent: this,
+                // If autoscaling is set up we need to ignore changes to desired count on update as it will likely have
+                // changed due to autoscaling.
+                ignoreChanges: autoScalingConfig ? ['desiredCount'] : [],
                 ...serviceOpts,
             },
         );
+
+        if (autoScalingConfig) {
+            const { minTasks, maxTasks, scaleInCooldown, scaleOutCooldown, scalableMetric, threshold } =
+                autoScalingConfig;
+
+            const autoScalingTarget = new aws.appautoscaling.Target(
+                `${namespace}-auto-scaling-target`,
+                {
+                    minCapacity: minTasks,
+                    maxCapacity: maxTasks,
+                    serviceNamespace: 'ecs',
+                    resourceId: pulumi.interpolate`service/${clusterName}/${service.name}`,
+                    scalableDimension: 'ecs:service:DesiredCount',
+                },
+                {
+                    parent: this,
+                },
+            );
+
+            let resourceLabel: pulumi.Input<string> | undefined;
+
+            // If we're using ALBRequestCountPerTarget as the scalable metric, we need to figure out the 'ResourceLabel'
+            // that the auto-scaling policy needs. It needs to be the concatentation of the ALB ARN Suffix and the
+            // target group suffix.
+            // https://docs.aws.amazon.com/autoscaling/application/APIReference/API_PredefinedMetricSpecification.html
+            if (scalableMetric === 'ALBRequestCountPerTarget') {
+                // This should never happen since we check for it in validateArgs
+                if (albConfig === undefined)
+                    throw new ResourceError(
+                        'You must supply ALB config if using ALBRequestCountPerTarget as the auto-scaling metric',
+                        this,
+                    );
+
+                const albArnSuffix = pulumi
+                    .output(albConfig.listenerArn)
+                    .apply((arn) => this.getAlbArnSuffixFromListenerArn(arn));
+
+                resourceLabel = pulumi.interpolate`${albArnSuffix}/${targetGroupArnSuffix}`;
+            }
+
+            const autoScalingPolicy = new aws.appautoscaling.Policy(
+                `${namespace}-auto-scaling-policy`,
+                {
+                    policyType: 'TargetTrackingScaling',
+                    resourceId: autoScalingTarget.id,
+                    scalableDimension: 'ecs:service:DesiredCount',
+                    serviceNamespace: 'ecs',
+                    targetTrackingScalingPolicyConfiguration: {
+                        predefinedMetricSpecification: {
+                            resourceLabel,
+                            predefinedMetricType: scalableMetric,
+                        },
+                        scaleInCooldown: scaleInCooldown ?? 60,
+                        scaleOutCooldown: scaleOutCooldown ?? 60,
+                        targetValue: threshold,
+                    },
+                },
+                {
+                    parent: this,
+                },
+            );
+        }
 
         this.executionRole = executionRole;
         this.securityGroup = securityGroup;
@@ -408,6 +487,27 @@ export default class FargateService extends pulumi.ComponentResource {
             }));
     }
 
+    /**
+     * Given a Listener ARN, return the ALB suffix portion. For example, given the following listener ARN:
+     *
+     * arn:aws:elasticloadbalancing:eu-west-1:012345678901:listener/app/name-of-alb/24cc901288efd990/eacc674b53cedc2d
+     *
+     * The output should be:
+     *
+     * app/name-of-alb/24cc901288efd990
+     */
+    private getAlbArnSuffixFromListenerArn(arn: string): string {
+        const match =
+            /^arn:aws:elasticloadbalancing:[^:]+:\d{12}:listener\/(?<albArnSuffix>app\/[^/]+\/[a-f0-9]+)\/[a-f0-9]+$/.exec(
+                arn,
+            );
+
+        if (match === null || match.groups === undefined || !('albArnSuffix' in match.groups))
+            throw new ResourceError(`Unable to find ALB ARN Suffix in ${arn}`, this);
+
+        return match.groups.albArnSuffix;
+    }
+
     private validateArgs(input: FargateServiceArgs, defaults: FargateServiceDefaults): FargateServiceArgsWithDefaults {
         const errors: string[] = [];
         const args = { ...defaults, ...input };
@@ -449,6 +549,11 @@ export default class FargateService extends pulumi.ComponentResource {
         // Listener rule priority must be between 1 and 50,000
         if (priority && (priority < 1 || priority > 50_000)) {
             errors.push(`Listener rule priority must be between 1 and 50,000`);
+        }
+
+        // If scalableMetric is set to 'ALBRequestCountPerTarget' then load balancer configuration must also be supplied
+        if (args.autoScalingConfig?.scalableMetric === 'ALBRequestCountPerTarget' && args.albConfig === undefined) {
+            errors.push('You must supply ALB config if using ALBRequestCountPerTarget as the auto-scaling metric');
         }
 
         if (errors.length > 0) {
