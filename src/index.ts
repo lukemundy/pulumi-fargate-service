@@ -253,7 +253,7 @@ export default class FargateService extends pulumi.ComponentResource {
         let targetGroupArnSuffix: pulumi.Output<string> | string = '';
 
         if (albConfig) {
-            const { healthCheckConfig, listenerArn, ruleActions, rulePriority, portMapping, securityGroupId } =
+            const { healthCheckConfig, listenerArn, ruleActions, rulePriority, portMapping, securityGroupId, path } =
                 albConfig;
 
             const ingressFromAlb = new aws.ec2.SecurityGroupRule(
@@ -300,7 +300,7 @@ export default class FargateService extends pulumi.ComponentResource {
                 {
                     priority: rulePriority,
                     listenerArn,
-                    conditions: [{ pathPattern: { values: ['/*'] } }],
+                    conditions: [{ pathPattern: { values: [path ?? '/*'] } }],
                     actions,
                 },
                 { parent: this, deleteBeforeReplace: true },

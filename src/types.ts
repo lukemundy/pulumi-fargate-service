@@ -110,6 +110,13 @@ interface ServiceAlbConfiguration {
      * Eg `sg-9879a8e7dacd`
      */
     securityGroupId: pulumi.Input<string>;
+
+    /**
+     * URL path to use in the listener rule. Requests with paths matching this value will be sent to your service.
+     *
+     * Default: `/*`
+     */
+    path?: string;
 }
 
 type ScalableMetricType =
