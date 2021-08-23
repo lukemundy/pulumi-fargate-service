@@ -97,7 +97,16 @@ interface ServiceAlbConfiguration {
     /**
      * Which port on which container (by name) should the ALB route incoming traffic to
      */
-    portMapping: Omit<aws.types.input.ecs.ServiceLoadBalancer, 'targetGroupArn' | 'elbName'>;
+    portMapping: {
+        /**
+         * The name of the container (as it appears in the container definition)
+         */
+        containerName: string;
+        /**
+         * Port on the container to associate with the load balancer
+         */
+        containerPort: number;
+    };
 
     /**
      * URL path to use in the listener rule. Requests with paths matching this value will be sent to your service.
