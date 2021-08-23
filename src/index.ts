@@ -160,12 +160,10 @@ export default class FargateService extends pulumi.ComponentResource {
         }
 
         // We'll also need a policy allowing access to any supplied repository credentials
-        const repositoryCredentialArns = containers.reduce((repoCreds, { repositoryCredentials }) => {
-            if (repositoryCredentials) {
-                repoCreds.push(repositoryCredentials.credentialsParameter);
-            }
-            return repoCreds;
-        }, [] as string[]);
+        const repositoryCredentialArns = containers
+            .map((container) => container.repositoryCredentialsArn)
+            // Remove any undefined values so TypeScript knows
+            .filter((arn): arn is pulumi.Input<string> => !!arn);
 
         if (repositoryCredentialArns.length > 0) {
             const repositorySecretsPolicy = new aws.iam.RolePolicy(
@@ -436,8 +434,11 @@ export default class FargateService extends pulumi.ComponentResource {
      * Converts the type FargateContainerDefinition (defined by this code) into a aws.ecs.ContainerDefinition
      */
     private generateAwsContainerDefinition(input: FargateContainerDefinition) {
-        const secretsResult = input.secrets?.map(({ name, valueFromArn }) => ({ name, valueFrom: valueFromArn }));
-        const logConfigurationResult = input.logGroupName
+        const { repositoryCredentialsArn, secrets, logGroupName } = input;
+
+        const secretsResult = secrets?.map(({ name, valueFromArn }) => ({ name, valueFrom: valueFromArn }));
+
+        const logConfigurationResult = logGroupName
             ? {
                   logDriver: 'awslogs',
                   options: {
@@ -446,6 +447,10 @@ export default class FargateService extends pulumi.ComponentResource {
                       'awslogs-stream-prefix': input.name,
                   },
               }
+            : undefined;
+
+        const repositoryCredentials = repositoryCredentialsArn
+            ? { credentialsParameter: repositoryCredentialsArn }
             : undefined;
 
         return pulumi
@@ -476,7 +481,7 @@ export default class FargateService extends pulumi.ComponentResource {
                 privileged: args.privileged,
                 pseudoTerminal: args.pseudoTerminal,
                 readonlyRootFilesystem: args.readonlyRootFilesystem,
-                repositoryCredentials: args.repositoryCredentials,
+                repositoryCredentials,
                 resourceRequirements: args.resourceRequirements,
                 secrets,
                 startTimeout: args.startTimeout,

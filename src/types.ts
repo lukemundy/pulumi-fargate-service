@@ -38,7 +38,13 @@ interface EnvironmentVariable {
 export interface FargateContainerDefinition
     extends Omit<
         aws.ecs.ContainerDefinition,
-        'secrets' | 'environment' | 'logConfiguration' | 'dockerSecurityOptions' | 'hostname' | 'links'
+        | 'secrets'
+        | 'environment'
+        | 'logConfiguration'
+        | 'dockerSecurityOptions'
+        | 'hostname'
+        | 'links'
+        | 'repositoryCredentials'
     > {
     /**
      * An array of Secrets Manager or Parameter Store ARNs to pass to the task as environment variables.
@@ -54,6 +60,14 @@ export interface FargateContainerDefinition
      * The name of an existing CloudWatch Log Group to stream logs from this container to
      */
     logGroupName?: pulumi.Input<string>;
+
+    /**
+     * The full ARN to a secret in AWS Secrets Manager containing the relevant credentials for authenticating to the
+     * docker registry containing this container's image.
+     *
+     * https://docs.aws.amazon.com/AmazonECS/latest/developerguide/private-auth.html
+     */
+    repositoryCredentialsArn?: pulumi.Input<string>;
 }
 
 interface ServiceAlbConfiguration {
