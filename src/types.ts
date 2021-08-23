@@ -191,6 +191,14 @@ export interface FargateServiceArgs {
     memory?: number;
 
     /**
+     * The number of tasks to run in the service. If you have configured auto scaling for this service this value is
+     * only used at creation time and is ignored otherwise.
+     *
+     * Default: `1`
+     */
+    desiredCount?: number;
+
+    /**
      * Namespace used as a prefix for resource names.
      *
      * Default: `<RESOURCE_NAME>-<STACK_NAME>`
@@ -224,6 +232,7 @@ export interface FargateServiceArgs {
 export interface FargateServiceDefaults {
     cpu: number;
     memory: number;
+    desiredCount: number;
     namespace: string;
 }
 

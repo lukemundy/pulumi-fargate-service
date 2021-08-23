@@ -32,6 +32,7 @@ export default class FargateService extends pulumi.ComponentResource {
             containers,
             cpu,
             memory,
+            desiredCount,
             namespace,
             subnetIds,
             taskPolicy,
@@ -39,6 +40,7 @@ export default class FargateService extends pulumi.ComponentResource {
         } = this.validateArgs(args, {
             cpu: 256,
             memory: 512,
+            desiredCount: 1,
             namespace: `${name}-${pulumi.getStack()}`,
         });
 
@@ -336,7 +338,7 @@ export default class FargateService extends pulumi.ComponentResource {
                 loadBalancers: containerAlbConfigs,
                 cluster: clusterName,
                 launchType: 'FARGATE',
-                desiredCount: 1,
+                desiredCount,
                 deploymentMinimumHealthyPercent: 100,
                 taskDefinition: taskDefinition.arn,
                 waitForSteadyState: true,
