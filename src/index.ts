@@ -547,6 +547,45 @@ export default class FargateService extends pulumi.ComponentResource {
             errors.push('You must supply ALB config if using ALBRequestCountPerTarget as the auto-scaling metric');
         }
 
+        // Ensure all container definitions have a unique name
+        const containerNames = args.containers.map((def) => def.name);
+        const uniques = [...new Set(containerNames)];
+
+        if (containerNames.length != uniques.length) {
+            errors.push(`All container names must be unique`);
+        }
+
+        // Courtesy check to ensure that the container mentioned in ALB config actually has some port mappings set up
+        if (args.albConfig) {
+            const { containerName, containerPort } = args.albConfig.portMapping;
+
+            const matchingContainers = args.containers.filter((container) => container.name === containerName);
+
+            if (matchingContainers.length < 1) {
+                errors.push(
+                    `You have configured the ALB to route traffic to port ${containerPort} on the ${containerName} container but that container has not been defined`,
+                );
+            } else {
+                const container = matchingContainers[0];
+
+                if (container.portMappings === undefined) {
+                    errors.push(
+                        `You have configured the ALB to route traffic to port ${containerPort} on the ${containerName} container, but the container definition does not have any port mappings. Add the portMappings property to the ${containerName} container definition`,
+                    );
+                } else {
+                    const matchingPortMappings = container.portMappings.filter(
+                        (mappings) => mappings.containerPort === containerPort,
+                    );
+
+                    if (matchingPortMappings.length != 1) {
+                        errors.push(
+                            `You have configured the ALB to route traffic to port ${containerPort} on the ${containerName} container, but port ${containerPort} is not present in the container's portMappings property`,
+                        );
+                    }
+                }
+            }
+        }
+
         if (errors.length > 0) {
             const errStr = errors.reduce((str, err) => `${str}\t- ${err}\n`, '');
 
