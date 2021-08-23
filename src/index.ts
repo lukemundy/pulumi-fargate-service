@@ -382,7 +382,7 @@ export default class FargateService extends pulumi.ComponentResource {
      * Converts the type FargateContainerDefinition (defined by this code) into a aws.ecs.ContainerDefinition
      */
     private generateAwsContainerDefinition(input: FargateContainerDefinition) {
-        const { repositoryCredentialsArn, secrets, logGroupName } = input;
+        const { repositoryCredentialsArn, secrets, logGroupName, environment } = input;
 
         const secretsResult = secrets?.map(({ name, valueFromArn }) => ({ name, valueFrom: valueFromArn }));
 
@@ -401,6 +401,14 @@ export default class FargateService extends pulumi.ComponentResource {
             ? { credentialsParameter: repositoryCredentialsArn }
             : undefined;
 
+        // Convert object into array of name/value pairs
+        const environmentResult = environment
+            ? Object.entries(environment).map(([name, value]) => ({
+                  name,
+                  value,
+              }))
+            : undefined;
+
         return pulumi
             .all([pulumi.output(input), secretsResult, logConfigurationResult])
             .apply(([args, secrets, logConfiguration]) => ({
@@ -412,7 +420,7 @@ export default class FargateService extends pulumi.ComponentResource {
                 dnsServers: args.dnsServers,
                 dockerLabels: args.dockerLabels,
                 entryPoint: args.entryPoint,
-                environment: args.environment,
+                environment: environmentResult,
                 essential: args.essential,
                 extraHosts: args.extraHosts,
                 firelensConfiguration: args.firelensConfiguration,

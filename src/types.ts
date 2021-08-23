@@ -26,11 +26,6 @@ export interface SecretFromInput {
     key?: string;
 }
 
-interface EnvironmentVariable {
-    name: string;
-    value: pulumi.Input<string>;
-}
-
 /**
  * A custom type for container definitions. It removes some properties that aren't relevant for Fargate tasks and
  * enhances others for easier use in Pulumi code
@@ -54,7 +49,7 @@ export interface FargateContainerDefinition
     /**
      * An array of Environment Variables to pass to the container
      */
-    environment?: EnvironmentVariable[];
+    environment?: Record<string, pulumi.Input<string>>;
 
     /**
      * The name of an existing CloudWatch Log Group to stream logs from this container to
