@@ -104,58 +104,39 @@ export default class FargateService extends pulumi.ComponentResource {
             );
         }
 
+        // Build an array of Policy Statements allowing access to any secrets
+        const secretStatements: aws.iam.PolicyStatement[] = [];
+
         const allSecrets = containers.reduce(
             (secrets, container) => (container.secrets ? [...secrets, ...container.secrets] : secrets),
             [] as SecretFromInput[],
         );
 
         // If secrets have been supplied, create policies allowing access to them
-        if (allSecrets) {
+        if (allSecrets.length > 0) {
             const smSecrets = allSecrets.filter((s) => s.source === 'secrets-manager').map((s) => s.valueFromArn);
             const psSecrets = allSecrets.filter((s) => s.source === 'parameter-store').map((s) => s.valueFromArn);
 
             if (smSecrets.length > 0) {
                 const uniqueArns = pulumi.all(smSecrets).apply((arns) => [...new Set(arns)]);
 
-                const secretsManagerPolicy = new aws.iam.RolePolicy(
-                    'secrets-manager-policy',
-                    {
-                        role: executionRole,
-                        policy: {
-                            Version: '2012-10-17',
-                            Statement: [
-                                {
-                                    Effect: 'Allow',
-                                    Action: 'secretsmanager:GetSecretValue',
-                                    Resource: uniqueArns,
-                                },
-                            ],
-                        },
-                    },
-                    { parent: executionRole },
-                );
+                secretStatements.push({
+                    Sid: 'AllowSecretsManagerSecrets',
+                    Effect: 'Allow',
+                    Action: 'secretsmanager:GetSecretValue',
+                    Resource: uniqueArns,
+                });
             }
 
             if (psSecrets.length > 0) {
                 const uniqueArns = pulumi.all(psSecrets).apply((arns) => [...new Set(arns)]);
 
-                const parameterStorePolicy = new aws.iam.RolePolicy(
-                    'parameter-store-policy',
-                    {
-                        role: executionRole,
-                        policy: {
-                            Version: '2012-10-17',
-                            Statement: [
-                                {
-                                    Effect: 'Allow',
-                                    Action: 'ssm:GetParameter*',
-                                    Resource: uniqueArns,
-                                },
-                            ],
-                        },
-                    },
-                    { parent: executionRole },
-                );
+                secretStatements.push({
+                    Sid: 'AllowSsmParameters',
+                    Effect: 'Allow',
+                    Action: 'ssm:GetParameter*',
+                    Resource: uniqueArns,
+                });
             }
         }
 
@@ -166,20 +147,23 @@ export default class FargateService extends pulumi.ComponentResource {
             .filter((arn): arn is pulumi.Input<string> => !!arn);
 
         if (repositoryCredentialArns.length > 0) {
-            const repositorySecretsPolicy = new aws.iam.RolePolicy(
-                'container-repo-creds-policy',
+            secretStatements.push({
+                Sid: 'AllowRepositoryCredentials',
+                Effect: 'Allow',
+                Action: 'secretsmanager:GetSecretValue',
+                Resource: repositoryCredentialArns,
+            });
+        }
+
+        if (secretStatements.length > 0) {
+            const secretsPolicy = new aws.iam.RolePolicy(
+                'container-secrets-policy',
                 {
                     role: executionRole,
-                    name: 'repo-secret-policy',
+                    name: 'secrets-policy',
                     policy: {
                         Version: '2012-10-17',
-                        Statement: [
-                            {
-                                Effect: 'Allow',
-                                Action: 'secretsmanager:GetSecretValue',
-                                Resource: repositoryCredentialArns,
-                            },
-                        ],
+                        Statement: secretStatements,
                     },
                 },
                 { parent: executionRole },
