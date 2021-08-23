@@ -105,13 +105,6 @@ interface ServiceAlbConfiguration {
     portMapping: Omit<aws.types.input.ecs.ServiceLoadBalancer, 'targetGroupArn' | 'elbName'>;
 
     /**
-     * ID of a Security Group that contains the ALB that will be handling traffic for this service.
-     *
-     * Eg `sg-9879a8e7dacd`
-     */
-    securityGroupId: pulumi.Input<string>;
-
-    /**
      * URL path to use in the listener rule. Requests with paths matching this value will be sent to your service.
      *
      * Default: `/*`
@@ -256,6 +249,12 @@ export interface FargateServiceArgs {
      * Eg `vpc-1aa478ffc`
      */
     vpcId: pulumi.Input<string>;
+
+    /**
+     * IDs of security groups to add the service to. Must provide at least 1. All security groups must belong to the
+     * same VPC provided in `vpcId`
+     */
+    securityGroupIds: pulumi.Input<string>[];
 }
 
 export interface FargateServiceDefaults {

@@ -14,8 +14,6 @@ import { validCpuMemoryCombinations } from './constants';
 export default class FargateService extends pulumi.ComponentResource {
     readonly executionRole: aws.iam.Role;
 
-    readonly securityGroup: aws.ec2.SecurityGroup;
-
     readonly service: aws.ecs.Service;
 
     readonly taskDefinition: aws.ecs.TaskDefinition;
@@ -38,6 +36,7 @@ export default class FargateService extends pulumi.ComponentResource {
             subnetIds,
             taskPolicy,
             vpcId,
+            securityGroupIds,
         } = this.validateArgs(args, {
             cpu: 256,
             memory: 512,
@@ -203,28 +202,6 @@ export default class FargateService extends pulumi.ComponentResource {
             );
         }
 
-        const securityGroup = new aws.ec2.SecurityGroup(
-            `${namespace}-service-sg`,
-            {
-                vpcId,
-                description: `Controls access to the ${namespace} service`,
-            },
-            { parent: this },
-        );
-
-        const egressRule = new aws.ec2.SecurityGroupRule(
-            'egress-rule',
-            {
-                type: 'egress',
-                securityGroupId: securityGroup.id,
-                protocol: '-1',
-                fromPort: 0,
-                toPort: 0,
-                cidrBlocks: ['0.0.0.0/0'],
-            },
-            { parent: securityGroup },
-        );
-
         const randomId = new random.RandomId(
             'task-definition-family-id',
             {
@@ -255,27 +232,13 @@ export default class FargateService extends pulumi.ComponentResource {
         let targetGroupArnSuffix: pulumi.Output<string> | string = '';
 
         if (albConfig) {
-            const { healthCheckConfig, listenerArn, ruleActions, rulePriority, portMapping, securityGroupId, path } =
-                albConfig;
-
-            const ingressFromAlb = new aws.ec2.SecurityGroupRule(
-                'ingress-from-alb-rule',
-                {
-                    type: 'ingress',
-                    securityGroupId: securityGroup.id,
-                    protocol: 'TCP',
-                    fromPort: portMapping.containerPort,
-                    toPort: portMapping.containerPort,
-                    sourceSecurityGroupId: securityGroupId,
-                },
-                { parent: securityGroup },
-            );
+            const { healthCheckConfig, listenerArn, ruleActions, rulePriority, portMapping, path } = albConfig;
 
             const targetGroup = new aws.lb.TargetGroup(
                 `${namespace}-tg`,
                 {
                     deregistrationDelay: 10,
-                    vpcId: args.vpcId,
+                    vpcId,
                     targetType: 'ip',
                     port: portMapping.containerPort,
                     protocol: 'HTTP',
@@ -327,7 +290,7 @@ export default class FargateService extends pulumi.ComponentResource {
                 taskDefinition: taskDefinition.arn,
                 waitForSteadyState: true,
                 networkConfiguration: {
-                    securityGroups: [securityGroup.id],
+                    securityGroups: securityGroupIds,
                     subnets: subnetIds,
                 },
             },
@@ -403,7 +366,6 @@ export default class FargateService extends pulumi.ComponentResource {
         }
 
         this.executionRole = executionRole;
-        this.securityGroup = securityGroup;
         this.service = service;
         this.taskDefinition = taskDefinition;
         this.taskRole = taskRole;
@@ -547,6 +509,11 @@ export default class FargateService extends pulumi.ComponentResource {
         // If scalableMetric is set to 'ALBRequestCountPerTarget' then load balancer configuration must also be supplied
         if (args.autoScalingConfig?.scalableMetric === 'ALBRequestCountPerTarget' && args.albConfig === undefined) {
             errors.push('You must supply ALB config if using ALBRequestCountPerTarget as the auto-scaling metric');
+        }
+
+        // Need to supply at least one security group id
+        if (args.securityGroupIds.length < 1) {
+            errors.push('You must supply at least one security group ID');
         }
 
         // Ensure all container definitions have a unique name
