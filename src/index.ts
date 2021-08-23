@@ -382,9 +382,12 @@ export default class FargateService extends pulumi.ComponentResource {
      * Converts the type FargateContainerDefinition (defined by this code) into a aws.ecs.ContainerDefinition
      */
     private generateAwsContainerDefinition(input: FargateContainerDefinition) {
-        const { repositoryCredentialsArn, secrets, logGroupName, environment } = input;
+        const { repositoryCredentialsArn, secrets: inputSecrets, logGroupName, environment } = input;
 
-        const secretsResult = secrets?.map(({ name, valueFromArn }) => ({ name, valueFrom: valueFromArn }));
+        const secretsResult = inputSecrets?.map(({ name, valueFromArn, key }) => ({
+            name,
+            valueFrom: key ? pulumi.interpolate`${valueFromArn}:${key}` : valueFromArn,
+        }));
 
         const logConfigurationResult = logGroupName
             ? {
@@ -528,7 +531,7 @@ export default class FargateService extends pulumi.ComponentResource {
         const containerNames = args.containers.map((def) => def.name);
         const uniques = [...new Set(containerNames)];
 
-        if (containerNames.length != uniques.length) {
+        if (containerNames.length !== uniques.length) {
             errors.push(`All container names must be unique`);
         }
 
@@ -554,7 +557,7 @@ export default class FargateService extends pulumi.ComponentResource {
                         (mappings) => mappings.containerPort === containerPort,
                     );
 
-                    if (matchingPortMappings.length != 1) {
+                    if (matchingPortMappings.length !== 1) {
                         errors.push(
                             `You have configured the ALB to route traffic to port ${containerPort} on the ${containerName} container, but port ${containerPort} is not present in the container's portMappings property`,
                         );
