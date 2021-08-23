@@ -33,6 +33,7 @@ export default class FargateService extends pulumi.ComponentResource {
             cpu,
             memory,
             desiredCount,
+            minimumHealthyPercent,
             namespace,
             subnetIds,
             taskPolicy,
@@ -41,6 +42,7 @@ export default class FargateService extends pulumi.ComponentResource {
             cpu: 256,
             memory: 512,
             desiredCount: 1,
+            minimumHealthyPercent: 100,
             namespace: `${name}-${pulumi.getStack()}`,
         });
 
@@ -321,7 +323,7 @@ export default class FargateService extends pulumi.ComponentResource {
                 cluster: clusterName,
                 launchType: 'FARGATE',
                 desiredCount,
-                deploymentMinimumHealthyPercent: 100,
+                deploymentMinimumHealthyPercent: minimumHealthyPercent,
                 taskDefinition: taskDefinition.arn,
                 waitForSteadyState: true,
                 networkConfiguration: {

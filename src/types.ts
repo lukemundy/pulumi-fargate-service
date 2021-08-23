@@ -220,6 +220,14 @@ export interface FargateServiceArgs {
     desiredCount?: number;
 
     /**
+     * The minimum amount of tasks (as a percentage of desiredCount) that must stay healthy during a new deployment to
+     * this service. A value of 100% means that 100% of the desiredCount (at the time of the deployment) will stay
+     * running throughout the deployment and the service will not stop any tasks until there are new, healthy tasks to
+     * replace them. A value of 0% means all tasks will be stopped before new tasks are started.
+     */
+    minimumHealthyPercent?: number;
+
+    /**
      * Namespace used as a prefix for resource names.
      *
      * Default: `<RESOURCE_NAME>-<STACK_NAME>`
@@ -254,6 +262,7 @@ export interface FargateServiceDefaults {
     cpu: number;
     memory: number;
     desiredCount: number;
+    minimumHealthyPercent: number;
     namespace: string;
 }
 
